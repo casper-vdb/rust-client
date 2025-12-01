@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package matrix_service;
+
+service MatrixService {
+  rpc UploadMatrix(stream UploadMatrixRequest) returns (UploadMatrixResponse);
+}
+
+message UploadMatrixRequest {
+  oneof payload {
+    MatrixHeader header = 1;
+    MatrixData data = 2;
+  }
+}
+
+message MatrixHeader {
+  string name = 1;
+  uint32 dimension = 2;
+  uint32 total_chunks = 3;
+  uint32 max_vectors_per_chunk = 4;
+}
+
+message MatrixData {
+  uint32 chunk_index = 1;
+  repeated float vector = 2;
+}
+
+message UploadMatrixResponse {
+  uint32 total_vectors = 1;
+  uint32 total_chunks  = 2;
+}

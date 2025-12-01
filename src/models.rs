@@ -1,0 +1,174 @@
+use serde::{Deserialize, Serialize};
+
+/// Vector insertion request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InsertRequest {
+    pub id: u32,
+    pub vector: Vec<f32>,
+}
+
+/// Vector insertion body (for JSON payload)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InsertVectorBody {
+    pub vector: Vec<f32>,
+}
+
+/// Vector deletion request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteRequest {
+    pub id: u32,
+}
+
+/// Search request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchRequest {
+    pub vector: Vec<f32>,
+    pub limit: Option<usize>,
+}
+
+/// Search vector body (for JSON payload)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchVectorBody {
+    pub vector: Vec<f32>,
+}
+
+/// Search result item (tuple format: [id, score])
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchResult {
+    pub id: u32,
+    pub score: f32,
+}
+
+/// Search response (array of [id, score] tuples)
+pub type SearchResponse = Vec<SearchResult>;
+
+/// Collection creation request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateCollectionRequest {
+    pub dim: usize,
+    pub max_size: u32,
+}
+
+/// Collection information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionInfo {
+    pub name: String,
+    pub dimension: usize,
+    pub mutable: bool,
+    pub has_index: bool,
+    pub max_size: u32,
+    pub index: Option<IndexInfo>,
+}
+
+/// Index information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexInfo {
+    #[serde(rename = "type")]
+    pub index_type: String,
+    pub metric: String,
+    pub quantization: String,
+    pub normalization: bool,
+    pub max_elements: Option<usize>,
+    pub m: Option<usize>,
+    pub m0: Option<usize>,
+    pub ef_construction: Option<usize>,
+    pub ef: Option<usize>,
+}
+
+/// Batch insert operation
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchInsertOperation {
+    pub id: u32,
+    pub vector: Vec<f32>,
+}
+
+/// Batch update request
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchUpdateRequest {
+    pub insert: Vec<BatchInsertOperation>,
+    pub delete: Vec<u32>,
+}
+
+/// Index creation request for IVF
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateIVFIndexRequest {
+    pub index_type: String,
+    pub config: IVFIndexConfig,
+}
+
+/// IVF index configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IVFIndexConfig {
+    pub metric: String,
+    pub quantization: String,
+    pub has_normalization: Option<bool>,
+    pub centroids_matrix_name: String,
+    pub pq_name: Option<String>,
+}
+
+/// Index creation request for HNSW
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateHNSWIndexRequest {
+    pub index: String,
+    pub config: HNSWIndexConfig,
+}
+
+/// HNSW index configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HNSWIndexConfig {
+    pub metric: String,
+    pub quantization: String,
+    pub has_normalization: Option<bool>,
+    pub max_elements: usize,
+    pub m: usize,
+    pub m0: usize,
+    pub ef_construction: usize,
+    pub ef: usize,
+}
+
+/// Collections list response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CollectionsListResponse {
+    pub collections: Vec<CollectionInfo>,
+}
+
+/// Get vector response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetVectorResponse {
+    pub id: u32,
+    pub vector: Vec<f32>,
+}
+
+/// Matrix information (from /matrix APIs)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MatrixInfo {
+    pub name: String,
+    pub dim: usize,
+    pub len: usize,
+    pub enabled: bool,
+}
+
+/// Result of gRPC matrix upload
+#[derive(Debug, Clone)]
+pub struct UploadMatrixResult {
+    pub success: bool,
+    pub message: String,
+    pub total_vectors: u32,
+    pub total_chunks: u32,
+}
+
+/// Create PQ request (for /pq/{name})
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePqRequest {
+    pub dim: usize,
+    pub codebooks: Vec<String>,
+}
+
+/// PQ info (for /pq APIs)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PqInfo {
+    pub name: String,
+    pub dim: usize,
+    pub codebooks: Vec<String>,
+    pub enabled: bool,
+}
