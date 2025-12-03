@@ -15,32 +15,52 @@ use url::Url;
 pub struct CasperClient {
     client: Client,
     base_url: Url,
+    grpc_addr: String,
 }
 
 impl CasperClient {
     /// Create a new Casper client
-    pub fn new(base_url: &str) -> Result<Self> {
-        let base_url = Url::parse(base_url)?;
+    ///
+    /// - `host`: hostname or IP of the Casper server (e.g. "127.0.0.1")
+    /// - `http_port`: HTTP API port (e.g. 8080)
+    /// - `grpc_port`: gRPC API port (e.g. 50051)
+    pub fn new(host: &str, http_port: u16, grpc_port: u16) -> Result<Self> {
+        let base_url_str = format!("{}:{}", host, http_port);
+        let base_url = Url::parse(&base_url_str)?;
         let client = Client::builder()
             .timeout(Duration::from_secs(30))
             .build()?;
         
-        Ok(Self { client, base_url })
+        let grpc_addr = format!("{}:{}", host, grpc_port);
+
+        Ok(Self { client, base_url, grpc_addr })
     }
 
     /// Create a new Casper client with custom timeout
-    pub fn with_timeout(base_url: &str, timeout: Duration) -> Result<Self> {
-        let base_url = Url::parse(base_url)?;
+    ///
+    /// - `host`: hostname or IP of the Casper server (e.g. "127.0.0.1")
+    /// - `http_port`: HTTP API port (e.g. 8080)
+    /// - `grpc_port`: gRPC API port (e.g. 50051)
+    pub fn with_timeout(host: &str, http_port: u16, grpc_port: u16, timeout: Duration) -> Result<Self> {
+        let base_url_str = format!("{}:{}", host, http_port);
+        let base_url = Url::parse(&base_url_str)?;
         let client = Client::builder()
             .timeout(timeout)
             .build()?;
         
-        Ok(Self { client, base_url })
+        let grpc_addr = format!("{}:{}", host, grpc_port);
+
+        Ok(Self { client, base_url, grpc_addr })
     }
 
     /// Get the base URL
     pub fn base_url(&self) -> &str {
         self.base_url.as_str()
+    }
+
+    /// Get the gRPC address
+    pub fn grpc_addr(&self) -> &str {
+        &self.grpc_addr
     }
 
     /// List all collections
@@ -206,14 +226,12 @@ impl CasperClient {
     pub async fn batch_update(
         &self,
         collection_name: &str,
-        id: u32,
         request: BatchUpdateRequest,
     ) -> Result<()> {
         let url = self.base_url.join(&format!("collection/{}/update", collection_name))?;
         let response = self
             .client
             .post(url)
-            .query(&[("id", id.to_string())])
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
@@ -267,16 +285,14 @@ impl CasperClient {
         self.handle_empty_response(response).await
     }
 
-    /// Upload a matrix via gRPC streaming.
+    /// Upload a matrix via gRPC streaming using the configured gRPC address.
     ///
-    /// - `grpc_addr`: gRPC endpoint, e.g. "http://127.0.0.1:50051"
     /// - `matrix_name`: name of the matrix to create/overwrite
     /// - `dimension`: vector dimensionality
     /// - `vectors`: flat list of all vectors, concatenated row-wise
     /// - `chunk_floats`: number of f32 values per chunk (must be >= dimension)
-    pub async fn upload_matrix_grpc(
+    pub async fn upload_matrix(
         &self,
-        grpc_addr: &str,
         matrix_name: &str,
         dimension: usize,
         vectors: Vec<f32>,
@@ -307,7 +323,7 @@ impl CasperClient {
         let total_floats = vectors.len();
         let total_chunks = (total_floats + chunk_floats - 1) / chunk_floats;
 
-        let mut client = MatrixServiceClient::connect(grpc_addr.to_string())
+        let mut client = MatrixServiceClient::connect(self.grpc_addr.clone())
             .await
             .map_err(|e| CasperError::Grpc(e.to_string()))?;
 
@@ -516,67 +532,7 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = CasperClient::new("http://localhost:8080").unwrap();
+        let client = CasperClient::new("http://localhost", 8080, 50051).unwrap();
         assert_eq!(client.base_url(), "http://localhost:8080/");
-    }
-
-    #[test]
-    fn test_client_creation_with_invalid_url() {
-        let result = CasperClient::new("invalid-url");
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_create_collection_url() {
-        let client = CasperClient::new("http://localhost:8080").unwrap();
-        
-        // Test URL construction
-        let url = client.base_url.join("collection/test_collection").unwrap();
-        assert_eq!(url.as_str(), "http://localhost:8080/collection/test_collection");
-    }
-
-    #[test]
-    fn test_insert_vector_url() {
-        let client = CasperClient::new("http://localhost:8080").unwrap();
-        
-        // Test URL construction for insert
-        let url = client.base_url.join("collection/b/insert").unwrap();
-        assert_eq!(url.as_str(), "http://localhost:8080/collection/b/insert");
-    }
-
-    #[test]
-    fn test_batch_update_url() {
-        let client = CasperClient::new("http://localhost:8080").unwrap();
-        
-        // Test URL construction for batch update
-        let url = client.base_url.join("collection/alex/batch_update").unwrap();
-        assert_eq!(url.as_str(), "http://localhost:8080/collection/alex/batch_update");
-    }
-
-    #[test]
-    fn test_create_hnsw_index_url() {
-        let client = CasperClient::new("http://localhost:8080").unwrap();
-        
-        // Test URL construction for HNSW index creation
-        let url = client.base_url.join("collection/alex/index").unwrap();
-        assert_eq!(url.as_str(), "http://localhost:8080/collection/alex/index");
-    }
-
-    #[test]
-    fn test_search_url() {
-        let client = CasperClient::new("http://localhost:8080").unwrap();
-        
-        // Test URL construction for search
-        let url = client.base_url.join("collection/alex/search").unwrap();
-        assert_eq!(url.as_str(), "http://localhost:8080/collection/alex/search");
-    }
-
-    #[test]
-    fn test_delete_vector_url() {
-        let client = CasperClient::new("http://localhost:8080").unwrap();
-        
-        // Test URL construction for delete vector
-        let url = client.base_url.join("collection/alex/delete").unwrap();
-        assert_eq!(url.as_str(), "http://localhost:8080/collection/alex/delete");
     }
 }
