@@ -206,14 +206,12 @@ impl CasperClient {
     pub async fn batch_update(
         &self,
         collection_name: &str,
-        id: u32,
         request: BatchUpdateRequest,
     ) -> Result<()> {
         let url = self.base_url.join(&format!("collection/{}/update", collection_name))?;
         let response = self
             .client
             .post(url)
-            .query(&[("id", id.to_string())])
             .header("Content-Type", "application/json")
             .json(&request)
             .send()

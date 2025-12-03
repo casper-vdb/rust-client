@@ -46,7 +46,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         inserts.push(BatchInsertOperation { id: i, vector });
     }
     let batch_request = BatchUpdateRequest { insert: inserts, delete: vec![] };
-    client.batch_update("example_collection", 9, batch_request).await?;
+    client.batch_update("example_collection", batch_request).await?;
     println!("Batch insert completed");
 
     // 4. Create HNSW index
