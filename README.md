@@ -36,8 +36,8 @@ use casper_client::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    
-    let client = CasperClient::new("http://localhost:8080")?;
+    // host (with scheme) + HTTP and gRPC ports
+    let client = CasperClient::new("http://localhost", 8080, 50051)?;
 
     // 1 Create a collection
     client
@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         inserts.push(BatchInsertOperation { id: i, vector });
     }
     let batch_request = BatchUpdateRequest { insert: inserts, delete: vec![] };
-    client.batch_update("example_collection", 9, batch_request).await?;
+    client.batch_update("example_collection", batch_request).await?;
 
     // 4 Create HNSW index
     let hnsw_request = CreateHNSWIndexRequest {

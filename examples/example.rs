@@ -12,8 +12,20 @@ use casper_client::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Create a client
-    let client = CasperClient::new("http://localhost:8080")?;
+    // Resolve host and ports from environment (with sane defaults)
+    let host = std::env::var("CASPER_HOST")
+        .unwrap_or_else(|_| "http://127.0.0.1".to_string());
+    let http_port: u16 = std::env::var("CASPER_HTTP_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(8080);
+    let grpc_port: u16 = std::env::var("CASPER_GRPC_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(50051);
+
+    // Create a client for HTTP & gRPC APIs
+    let client = CasperClient::new(&host, http_port, grpc_port)?;
     
     println!("Casper Vector Database Client Example");
 
@@ -133,8 +145,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // A. Matrix operations (gRPC upload + HTTP management)
     println!("\nCreating matrices via gRPC...");
-    let grpc_addr = std::env::var("GRPC_ADDR")
-        .unwrap_or_else(|_| "http://127.0.0.1:50051".to_string());
 
     let dim = 3usize;
     let m1_name = "example_matrix_1";
@@ -151,12 +161,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ];
 
     let res1 = client
-        .upload_matrix_grpc(&grpc_addr, m1_name, dim, m1_vectors.clone(), 6)
+        .upload_matrix(m1_name, dim, m1_vectors.clone(), 6)
         .await?;
     println!("Uploaded matrix '{}' via gRPC: {}", m1_name, res1.message);
 
     let res2 = client
-        .upload_matrix_grpc(&grpc_addr, m2_name, dim, m2_vectors.clone(), 6)
+        .upload_matrix(m2_name, dim, m2_vectors.clone(), 6)
         .await?;
     println!("Uploaded matrix '{}' via gRPC: {}", m2_name, res2.message);
 
