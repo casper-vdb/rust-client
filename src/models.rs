@@ -57,22 +57,18 @@ pub struct CollectionInfo {
     pub mutable: bool,
     pub has_index: bool,
     pub max_size: u32,
+    /// Current number of vectors in the collection
+    pub size: usize,
     pub index: Option<IndexInfo>,
 }
 
 /// Index information
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexInfo {
-    #[serde(rename = "type")]
-    pub index_type: String,
-    pub metric: String,
-    pub quantization: String,
+    /// HNSW index configuration (if present)
+    pub hnsw: Option<HNSWIndexConfig>,
+    /// Whether normalization is applied for this index
     pub normalization: bool,
-    pub max_elements: Option<usize>,
-    pub m: Option<usize>,
-    pub m0: Option<usize>,
-    pub ef_construction: Option<usize>,
-    pub ef: Option<usize>,
 }
 
 /// Batch insert operation
@@ -89,41 +85,32 @@ pub struct BatchUpdateRequest {
     pub delete: Vec<u32>,
 }
 
-/// Index creation request for IVF
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreateIVFIndexRequest {
-    pub index_type: String,
-    pub config: IVFIndexConfig,
-}
-
-/// IVF index configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IVFIndexConfig {
-    pub metric: String,
-    pub quantization: String,
-    pub has_normalization: Option<bool>,
-    pub centroids_matrix_name: String,
-    pub pq_name: Option<String>,
-}
-
 /// Index creation request for HNSW
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateHNSWIndexRequest {
-    pub index: String,
-    pub config: HNSWIndexConfig,
+    /// HNSW index configuration
+    pub hnsw: HNSWIndexConfig,
+    /// Whether to apply vector normalization
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normalization: Option<bool>,
 }
 
 /// HNSW index configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HNSWIndexConfig {
+    /// Distance metric, e.g. "inner-product"
     pub metric: String,
+    /// Quantization type, e.g. "f32" or "pq8"
     pub quantization: String,
-    pub has_normalization: Option<bool>,
-    pub max_elements: usize,
+    /// Number of bi-directional links created for every new element
     pub m: usize,
+    /// Number of outgoing connections in the zero layer
     pub m0: usize,
+    /// Controls index search speed/build speed tradeoff
     pub ef_construction: usize,
-    pub ef: usize,
+    /// Optional PQ name when using product quantization
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pq_name: Option<String>,
 }
 
 /// Collections list response

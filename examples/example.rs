@@ -64,19 +64,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 4. Create HNSW index
     println!("\nCreating HNSW index...");
     let hnsw_request = CreateHNSWIndexRequest {
-        index: "hnsw".to_string(),
-        config: HNSWIndexConfig {
+        hnsw: HNSWIndexConfig {
             metric: "inner-product".to_string(),
-            quantization: "i8".to_string(),
-            has_normalization: Some(true),
-            max_elements: 600000,
+            quantization: "f32".to_string(),
             m: 16,
             m0: 32,
             ef_construction: 200,
-            ef: 50,
+            pq_name: None,
         },
+        normalization: Some(true),
     };
-    client.create_hnsw_index("example_collection", true, hnsw_request).await?;
+    client.create_hnsw_index("example_collection", hnsw_request).await?;
     println!("HNSW index created");
 
     // 5. Search for similar vectors
@@ -116,9 +114,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  - Has index: {}", collection_info.has_index);
     println!("  - Max size: {}", collection_info.max_size);
     if let Some(index) = collection_info.index {
-        println!("  - Index type: {}", index.index_type);
-        println!("  - Metric: {}", index.metric);
-        println!("  - Quantization: {}", index.quantization);
+        if let Some(hnsw) = index.hnsw {
+            println!("  - Index: HNSW");
+            println!("    - Metric: {}", hnsw.metric);
+            println!("    - Quantization: {}", hnsw.quantization);
+            println!("    - M: {}", hnsw.m);
+            println!("    - M0: {}", hnsw.m0);
+            println!("    - Ef construction: {}", hnsw.ef_construction);
+            println!("    - Normalization: {}", index.normalization);
+        } else {
+            println!("  - Index present (non-HNSW)");
+        }
     }
 
     // 9. List collections
@@ -126,9 +132,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let collections = client.list_collections().await?;
     println!("Found {} collections:", collections.collections.len());
     for collection in collections.collections {
-        println!("  - {} (dim: {}, mutable: {}, has_index: {})",
+        println!("  - {} (dim: {}, size: {}, mutable: {}, has_index: {})",
                  collection.name,
                  collection.dimension,
+                 collection.size,
                  collection.mutable,
                  collection.has_index);
     }

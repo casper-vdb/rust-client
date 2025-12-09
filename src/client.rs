@@ -153,7 +153,10 @@ impl CasperClient {
         let response = self
             .client
             .post(url)
-            .query(&[("limit", limit.to_string())])
+            .query(&[
+                ("limit", limit.to_string()),
+                ("output", "bin".to_string()),
+            ])
             .header("Content-Type", "application/json")
             .json(&SearchVectorBody { vector: request.vector })
             .send()
@@ -240,35 +243,15 @@ impl CasperClient {
         self.handle_empty_response(response).await
     }
 
-    /// Create IVF index
-    pub async fn create_ivf_index(
-        &self,
-        collection_name: &str,
-        request: CreateIVFIndexRequest,
-    ) -> Result<()> {
-        let url = self.base_url.join(&format!("collections/{}/index", collection_name))?;
-        let response = self
-            .client
-            .post(url)
-            .json(&request)
-            .send()
-            .await?;
-        
-        self.handle_empty_response(response).await
-    }
-
-    /// Create HNSW index
     pub async fn create_hnsw_index(
         &self,
         collection_name: &str,
-        has_normalization: bool,
         request: CreateHNSWIndexRequest,
     ) -> Result<()> {
         let url = self.base_url.join(&format!("collection/{}/index", collection_name))?;
         let response = self
             .client
             .post(url)
-            .query(&[("has_normalization", has_normalization.to_string())])
             .header("Content-Type", "application/json")
             .json(&request)
             .send()
