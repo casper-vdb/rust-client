@@ -1,8 +1,6 @@
 # Casper Rust client
 
-Client library for the Casper Vector Database written in Rust.
-
-- [Casper project](https://github.com/casper-vdb/Casper)
+Client library for the [Casper Vector Database](https://github.com/casper-vdb/Casper) written in Rust.
 
 ## Installation
 
