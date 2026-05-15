@@ -1,55 +1,48 @@
 use serde::{Deserialize, Serialize};
 
-/// Vector insertion request
+/// A single (id, vector) pair used in upsert/batch-insert operations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InsertRequest {
+pub struct VectorPoint {
     pub id: u32,
     pub vector: Vec<f32>,
 }
 
-/// Vector insertion body (for JSON payload)
+/// Body of `PUT /collection/{name}/vectors`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct InsertVectorBody {
-    pub vector: Vec<f32>,
+pub struct UpsertVectorsRequest {
+    pub vectors: Vec<VectorPoint>,
 }
 
-/// Vector deletion request
+/// Body of `POST /collection/{name}/vectors/delete`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DeleteRequest {
-    pub id: u32,
+pub struct DeleteVectorsRequest {
+    pub vectors: Vec<u32>,
 }
 
-/// Search request
+/// Body of `POST /collection/{name}/search`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchRequest {
     pub vector: Vec<f32>,
-    pub limit: Option<usize>,
 }
 
-/// Search vector body (for JSON payload)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchVectorBody {
-    pub vector: Vec<f32>,
-}
-
-/// Search result item (tuple format: [id, score])
+/// Search result item.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
     pub id: u32,
     pub score: f32,
 }
 
-/// Search response (array of [id, score] tuples)
 pub type SearchResponse = Vec<SearchResult>;
 
-/// Collection creation request
+/// Query parameters for `POST /collection/{name}/create`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateCollectionRequest {
     pub dim: usize,
     pub max_size: u32,
 }
 
-/// Collection information
+/// Information about an existing collection, as returned by
+/// `GET /collection/{name}` and `GET /collections`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionInfo {
     pub name: String,
@@ -57,105 +50,72 @@ pub struct CollectionInfo {
     pub mutable: bool,
     pub has_index: bool,
     pub max_size: u32,
-    /// Current number of vectors in the collection
-    pub size: usize,
+    /// Current number of vectors in the collection.
+    pub size: u32,
+    /// Collection status (e.g. "green", "yellow").
+    pub status: String,
+    #[serde(default)]
     pub index: Option<IndexInfo>,
 }
 
-/// Index information
+/// Information about a collection's index.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexInfo {
-    /// HNSW index configuration (if present)
+    /// HNSW configuration when an HNSW index is present.
+    #[serde(default)]
     pub hnsw: Option<HNSWIndexConfig>,
-    /// Whether normalization is applied for this index
+    /// Whether vector normalization is applied on insert/update.
     pub normalization: bool,
 }
 
-/// Batch insert operation
+/// Batch operation item used by `BatchUpdateRequest`. Kept as a distinct
+/// type for clarity at call sites, even though it has the same shape as
+/// `VectorPoint`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchInsertOperation {
     pub id: u32,
     pub vector: Vec<f32>,
 }
 
-/// Batch update request
+/// Body of `POST /collection/{name}/update`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchUpdateRequest {
     pub insert: Vec<BatchInsertOperation>,
     pub delete: Vec<u32>,
 }
 
-/// Index creation request for HNSW
+/// Body of `POST /collection/{name}/index`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CreateHNSWIndexRequest {
-    /// HNSW index configuration
     pub hnsw: HNSWIndexConfig,
-    /// Whether to apply vector normalization
     #[serde(skip_serializing_if = "Option::is_none")]
     pub normalization: Option<bool>,
 }
 
-/// HNSW index configuration
+/// HNSW index configuration.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HNSWIndexConfig {
-    /// Distance metric, e.g. "inner-product"
+    /// Distance metric: "euclidean", "l2sq", "cosine", or "inner-product".
     pub metric: String,
-    /// Quantization type, e.g. "f32" or "pq8"
+    /// Quantization: "f32" or "i8".
     pub quantization: String,
-    /// Number of bi-directional links created for every new element
+    /// Bi-directional links per node on upper layers.
     pub m: usize,
-    /// Number of outgoing connections in the zero layer
+    /// Bi-directional links per node on the bottom layer (level 0).
     pub m0: usize,
-    /// Controls index search speed/build speed tradeoff
+    /// Candidate list size during index build.
     pub ef_construction: usize,
-    /// Optional PQ name when using product quantization
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pq_name: Option<String>,
 }
 
-/// Collections list response
+/// Response payload for `GET /collections`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CollectionsListResponse {
     pub collections: Vec<CollectionInfo>,
 }
 
-/// Get vector response
+/// Response payload for `GET /collection/{name}/vector/{id}`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GetVectorResponse {
     pub id: u32,
     pub vector: Vec<f32>,
-}
-
-/// Matrix information (from /matrix APIs)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MatrixInfo {
-    pub name: String,
-    pub dim: usize,
-    pub len: usize,
-    pub enabled: bool,
-}
-
-/// Result of gRPC matrix upload
-#[derive(Debug, Clone)]
-pub struct UploadMatrixResult {
-    pub success: bool,
-    pub message: String,
-    pub total_vectors: u32,
-    pub total_chunks: u32,
-}
-
-/// Create PQ request (for /pq/{name})
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CreatePqRequest {
-    pub dim: usize,
-    pub codebooks: Vec<String>,
-}
-
-/// PQ info (for /pq APIs)
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PqInfo {
-    pub name: String,
-    pub dim: usize,
-    pub codebooks: Vec<String>,
-    pub enabled: bool,
 }
