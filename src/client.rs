@@ -1,164 +1,174 @@
 use crate::error::{CasperError, Result};
 use crate::models::*;
-use crate::grpc::service::matrix_service::{
-    matrix_service_client::MatrixServiceClient,
-    upload_matrix_request, MatrixData, MatrixHeader, UploadMatrixRequest,
-};
 use reqwest::Client;
 use std::time::Duration;
-use tokio_stream::wrappers::ReceiverStream;
-use tonic::Request;
 use url::Url;
 
-/// Casper vector database client
+/// Casper vector database client (HTTP).
 #[derive(Debug, Clone)]
 pub struct CasperClient {
     client: Client,
     base_url: Url,
-    grpc_addr: String,
 }
 
 impl CasperClient {
-    /// Create a new Casper client
+    /// Create a new client.
     ///
-    /// - `host`: hostname or IP of the Casper server (e.g. "127.0.0.1")
+    /// - `host`: hostname with scheme (e.g. "http://127.0.0.1")
     /// - `http_port`: HTTP API port (e.g. 8080)
-    /// - `grpc_port`: gRPC API port (e.g. 50051)
-    pub fn new(host: &str, http_port: u16, grpc_port: u16) -> Result<Self> {
-        let base_url_str = format!("{}:{}", host, http_port);
-        let base_url = Url::parse(&base_url_str)?;
-        let client = Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()?;
-        
-        let grpc_addr = format!("{}:{}", host, grpc_port);
-
-        Ok(Self { client, base_url, grpc_addr })
+    pub fn new(host: &str, http_port: u16) -> Result<Self> {
+        Self::with_timeout(host, http_port, Duration::from_secs(30))
     }
 
-    /// Create a new Casper client with custom timeout
-    ///
-    /// - `host`: hostname or IP of the Casper server (e.g. "127.0.0.1")
-    /// - `http_port`: HTTP API port (e.g. 8080)
-    /// - `grpc_port`: gRPC API port (e.g. 50051)
-    pub fn with_timeout(host: &str, http_port: u16, grpc_port: u16, timeout: Duration) -> Result<Self> {
+    /// Create a new client with a custom request timeout.
+    pub fn with_timeout(host: &str, http_port: u16, timeout: Duration) -> Result<Self> {
         let base_url_str = format!("{}:{}", host, http_port);
         let base_url = Url::parse(&base_url_str)?;
-        let client = Client::builder()
-            .timeout(timeout)
-            .build()?;
-        
-        let grpc_addr = format!("{}:{}", host, grpc_port);
+        let client = Client::builder().timeout(timeout).build()?;
 
-        Ok(Self { client, base_url, grpc_addr })
+        Ok(Self { client, base_url })
     }
 
-    /// Get the base URL
+    /// Base URL the client targets.
     pub fn base_url(&self) -> &str {
         self.base_url.as_str()
     }
 
-    /// Get the gRPC address
-    pub fn grpc_addr(&self) -> &str {
-        &self.grpc_addr
-    }
+    // ---- Collection lifecycle ----------------------------------------------
 
-    /// List all collections
+    /// `GET /collections`
     pub async fn list_collections(&self) -> Result<CollectionsListResponse> {
         let url = self.base_url.join("collections")?;
         let response = self.client.get(url).send().await?;
-        
         self.handle_response(response).await
     }
 
-    /// Get collection information
+    /// `GET /collection/{name}`
     pub async fn get_collection(&self, collection_name: &str) -> Result<CollectionInfo> {
         let url = self.base_url.join(&format!("collection/{}", collection_name))?;
         let response = self.client.get(url).send().await?;
-        
         self.handle_response(response).await
     }
 
-    /// Create a new collection
-    pub async fn create_collection(
-        &self,
-        collection_name: &str,
-        request: CreateCollectionRequest,
-    ) -> Result<()> {
+    /// `POST /collection/{name}?dim=..&max_size=..`
+    pub async fn create_collection(&self, collection_name: &str, request: CreateCollectionRequest) -> Result<()> {
         let url = self.base_url.join(&format!("collection/{}", collection_name))?;
-        let response = self
-            .client
-            .post(url)
-            .query(&request)
-            .header("Content-Type", "application/json")
-            .send()
-            .await?;
-        
+        let response = self.client.post(url).query(&request).send().await?;
         self.handle_empty_response(response).await
     }
 
-    /// Delete a collection
+    /// `DELETE /collection/{name}`
     pub async fn delete_collection(&self, collection_name: &str) -> Result<()> {
         let url = self.base_url.join(&format!("collection/{}", collection_name))?;
         let response = self.client.delete(url).send().await?;
-        
         self.handle_empty_response(response).await
     }
 
-    /// Insert a vector into a collection
-    pub async fn insert_vector(
-        &self,
-        collection_name: &str,
-        request: InsertRequest,
-    ) -> Result<()> {
-        let url = self.base_url.join(&format!("collection/{}/insert", collection_name))?;
+    // ---- Vector operations -------------------------------------------------
+
+    /// `PUT /collection/{name}/vectors` — upsert one or more vectors.
+    pub async fn upsert_vectors(&self, collection_name: &str, vectors: Vec<VectorPoint>) -> Result<()> {
+        let url = self.base_url.join(&format!("collection/{}/vectors", collection_name))?;
+        let response = self
+            .client
+            .put(url)
+            .header("Content-Type", "application/json")
+            .json(&UpsertVectorsRequest { vectors })
+            .send()
+            .await?;
+        self.handle_empty_response(response).await
+    }
+
+    /// `POST /collection/{name}/vectors/delete` — delete vectors by id.
+    pub async fn delete_vectors(&self, collection_name: &str, ids: Vec<u32>) -> Result<()> {
+        let url = self.base_url.join(&format!("collection/{}/vectors/delete", collection_name))?;
         let response = self
             .client
             .post(url)
-            .query(&[("id", request.id.to_string())])
             .header("Content-Type", "application/json")
-            .json(&InsertVectorBody { vector: request.vector })
+            .json(&DeleteVectorsRequest { vectors: ids })
             .send()
             .await?;
-        
         self.handle_empty_response(response).await
     }
 
-    /// Delete a vector from a collection
-    pub async fn delete_vector(
-        &self,
-        collection_name: &str,
-        request: DeleteRequest,
-    ) -> Result<()> {
-        let url = self.base_url.join(&format!("collection/{}/delete", collection_name))?;
-        let response = self
-            .client
-            .delete(url)
-            .query(&[("id", request.id.to_string())])
-            .header("Content-Type", "application/json")
-            .send()
-            .await?;
-        
+    /// `POST /collection/{name}/update` — mixed insert + delete in one call.
+    pub async fn batch_update(&self, collection_name: &str, request: BatchUpdateRequest) -> Result<()> {
+        let url = self.base_url.join(&format!("collection/{}/update", collection_name))?;
+        let response = self.client.post(url).header("Content-Type", "application/json").json(&request).send().await?;
         self.handle_empty_response(response).await
     }
 
-    /// Search for similar vectors
-    pub async fn search(
-        &self,
-        collection_name: &str,
-        limit: usize,
-        request: SearchRequest,
-    ) -> Result<SearchResponse> {
+    /// `GET /collection/{name}/vector/{id}` — returns `None` on 404.
+    pub async fn get_vector(&self, collection_name: &str, id: u32) -> Result<Option<Vec<f32>>> {
+        let url = self.base_url.join(&format!("collection/{}/vector/{}", collection_name, id))?;
+        let response = self.client.get(url).send().await?;
+
+        if response.status() == 404 {
+            return Ok(None);
+        }
+
+        let vector_response: GetVectorResponse = self.handle_response(response).await?;
+        Ok(Some(vector_response.vector))
+    }
+
+    // ---- Mute / unmute -----------------------------------------------------
+
+    /// `POST /collection/{name}/mute`
+    pub async fn mute(&self, collection_name: &str) -> Result<()> {
+        let url = self.base_url.join(&format!("collection/{}/mute", collection_name))?;
+        let response = self.client.post(url).send().await?;
+        self.handle_empty_response(response).await
+    }
+
+    /// `POST /collection/{name}/unmute`
+    pub async fn unmute(&self, collection_name: &str) -> Result<()> {
+        let url = self.base_url.join(&format!("collection/{}/unmute", collection_name))?;
+        let response = self.client.post(url).send().await?;
+        self.handle_empty_response(response).await
+    }
+
+    // ---- Index lifecycle ---------------------------------------------------
+
+    /// `POST /collection/{name}/index` — index build is asynchronous; the
+    /// server returns 202 Accepted as soon as the build has been scheduled.
+    pub async fn create_hnsw_index(&self, collection_name: &str, request: CreateHNSWIndexRequest) -> Result<()> {
+        let url = self.base_url.join(&format!("collection/{}/index", collection_name))?;
+        let response = self.client.post(url).header("Content-Type", "application/json").json(&request).send().await?;
+        self.handle_empty_response(response).await
+    }
+
+    /// `DELETE /collection/{name}/index`
+    pub async fn delete_index(&self, collection_name: &str) -> Result<()> {
+        let url = self.base_url.join(&format!("collection/{}/index", collection_name))?;
+        let response = self.client.delete(url).send().await?;
+        self.handle_empty_response(response).await
+    }
+
+    // ---- Search ------------------------------------------------------------
+
+    /// `POST /collection/{name}/search?limit=..&output=bin` — uses the binary
+    /// response format for compactness and decodes it client-side.
+    pub async fn search(&self, collection_name: &str, limit: usize, request: SearchRequest) -> Result<SearchResponse> {
+        self.search_with_ef(collection_name, limit, None, request).await
+    }
+
+    /// Same as [`search`] but lets the caller override `ef_search` on the
+    /// server side (HNSW candidate list size).
+    pub async fn search_with_ef(&self, collection_name: &str, limit: usize, ef_search: Option<usize>, request: SearchRequest) -> Result<SearchResponse> {
         let url = self.base_url.join(&format!("collection/{}/search", collection_name))?;
+
+        let mut query: Vec<(&str, String)> = vec![("limit", limit.to_string()), ("output", "bin".to_string())];
+        if let Some(ef) = ef_search {
+            query.push(("ef_search", ef.to_string()));
+        }
+
         let response = self
             .client
             .post(url)
-            .query(&[
-                ("limit", limit.to_string()),
-                ("output", "bin".to_string()),
-            ])
+            .query(&query)
             .header("Content-Type", "application/json")
-            .json(&SearchVectorBody { vector: request.vector })
+            .json(&request)
             .send()
             .await?;
 
@@ -171,12 +181,9 @@ impl CasperClient {
         let bytes = response.bytes().await?;
         let buf = bytes.as_ref();
 
-        // Binary format:
-        // [u32 LE: count] followed by `count` * (u32 LE id, f32 LE score)
+        // Binary format: [u32 LE count] then `count` * (u32 LE id, f32 LE score).
         if buf.len() < 4 {
-            return Err(CasperError::InvalidResponse(
-                "binary search response too short (missing count)".to_string(),
-            ));
+            return Err(CasperError::InvalidResponse("binary search response too short (missing count)".to_string()));
         }
 
         let mut offset = 0;
@@ -185,7 +192,7 @@ impl CasperClient {
         let count = u32::from_le_bytes(count_bytes) as usize;
         offset += 4;
 
-        let expected_len = 4 + count * (4 + 4);
+        let expected_len = 4 + count * 8;
         if buf.len() < expected_len {
             return Err(CasperError::InvalidResponse(format!(
                 "binary search response truncated: expected at least {} bytes, got {}",
@@ -212,280 +219,24 @@ impl CasperClient {
         Ok(results)
     }
 
-    /// Get vector by ID
-    pub async fn get_vector(&self, collection_name: &str, id: u32) -> Result<Option<Vec<f32>>> {
-        let url = self.base_url.join(&format!("collection/{}/vector/{}", collection_name, id))?;
-        let response = self.client.get(url).send().await?;
-        
-        if response.status() == 404 {
-            return Ok(None);
-        }
-        
-        let vector_response: GetVectorResponse = self.handle_response(response).await?;
-        Ok(Some(vector_response.vector))
-    }
+    // ---- Internal helpers --------------------------------------------------
 
-    /// Batch update operations
-    pub async fn batch_update(
-        &self,
-        collection_name: &str,
-        request: BatchUpdateRequest,
-    ) -> Result<()> {
-        let url = self.base_url.join(&format!("collection/{}/update", collection_name))?;
-        let response = self
-            .client
-            .post(url)
-            .header("Content-Type", "application/json")
-            .json(&request)
-            .send()
-            .await?;
-        
-        self.handle_empty_response(response).await
-    }
-
-    pub async fn create_hnsw_index(
-        &self,
-        collection_name: &str,
-        request: CreateHNSWIndexRequest,
-    ) -> Result<()> {
-        let url = self.base_url.join(&format!("collection/{}/index", collection_name))?;
-        let response = self
-            .client
-            .post(url)
-            .header("Content-Type", "application/json")
-            .json(&request)
-            .send()
-            .await?;
-        
-        self.handle_empty_response(response).await
-    }
-
-    /// Delete index from collection
-    pub async fn delete_index(&self, collection_name: &str) -> Result<()> {
-        let url = self.base_url.join(&format!("collection/{}/index", collection_name))?;
-        let response = self.client.delete(url).send().await?;
-        
-        self.handle_empty_response(response).await
-    }
-
-    /// Upload a matrix via gRPC streaming using the configured gRPC address.
-    ///
-    /// - `matrix_name`: name of the matrix to create/overwrite
-    /// - `dimension`: vector dimensionality
-    /// - `vectors`: flat list of all vectors, concatenated row-wise
-    /// - `chunk_floats`: number of f32 values per chunk (must be >= dimension)
-    pub async fn upload_matrix(
-        &self,
-        matrix_name: &str,
-        dimension: usize,
-        vectors: Vec<f32>,
-        chunk_floats: usize,
-    ) -> Result<UploadMatrixResult> {
-        use crate::error::CasperError;
-
-        if dimension == 0 {
-            return Err(CasperError::InvalidResponse(
-                "dimension must be greater than 0".to_string(),
-            ));
-        }
-
-        if vectors.len() % dimension != 0 {
-            return Err(CasperError::InvalidResponse(format!(
-                "vector buffer length {} is not divisible by dimension {}",
-                vectors.len(),
-                dimension
-            )));
-        }
-
-        let chunk_floats = if chunk_floats < dimension {
-            dimension
-        } else {
-            chunk_floats
-        };
-
-        let total_floats = vectors.len();
-        let total_chunks = (total_floats + chunk_floats - 1) / chunk_floats;
-
-        let mut client = MatrixServiceClient::connect(self.grpc_addr.clone())
-            .await
-            .map_err(|e| CasperError::Grpc(e.to_string()))?;
-
-        let (tx, rx) = tokio::sync::mpsc::channel::<UploadMatrixRequest>(4);
-
-        // Spawn producer task to send header + chunks
-        let name = matrix_name.to_string();
-        let vectors_clone = vectors.clone();
-        tokio::spawn(async move {
-            // Header first
-            let max_vectors_per_chunk = (chunk_floats / dimension).max(1) as u32;
-            let header = MatrixHeader {
-                name: name.clone(),
-                dimension: dimension as u32,
-                total_chunks: total_chunks as u32,
-                max_vectors_per_chunk,
-            };
-            let header_msg = UploadMatrixRequest {
-                payload: Some(upload_matrix_request::Payload::Header(header)),
-            };
-            if tx.send(header_msg).await.is_err() {
-                return;
-            }
-
-            // Then data chunks
-            for chunk_idx in 0..total_chunks {
-                let start = chunk_idx * chunk_floats;
-                let end = (start + chunk_floats).min(total_floats);
-                let slice = &vectors_clone[start..end];
-
-                let data = MatrixData {
-                    chunk_index: chunk_idx as u32,
-                    vector: slice.to_vec(),
-                };
-                let msg = UploadMatrixRequest {
-                    payload: Some(upload_matrix_request::Payload::Data(data)),
-                };
-
-                if tx.send(msg).await.is_err() {
-                    break;
-                }
-            }
-        });
-
-        let request = Request::new(ReceiverStream::new(rx));
-        let response = client
-            .upload_matrix(request)
-            .await
-            .map_err(|e| CasperError::Grpc(e.to_string()))?
-            .into_inner();
-
-        Ok(UploadMatrixResult {
-            success: true,
-            message: format!(
-                "Successfully uploaded {} vectors in {} chunks",
-                response.total_vectors, response.total_chunks
-            ),
-            total_vectors: response.total_vectors,
-            total_chunks: response.total_chunks,
-        })
-    }
-
-    /// Delete a matrix by name (HTTP)
-    pub async fn delete_matrix(&self, name: &str) -> Result<()> {
-        let url = self.base_url.join(&format!("matrix/{}", name))?;
-        let response = self
-            .client
-            .delete(url)
-            .header("Content-Type", "application/json")
-            .send()
-            .await?;
-
-        self.handle_empty_response(response).await
-    }
-
-    /// List all matrices (HTTP)
-    pub async fn list_matrices(&self) -> Result<Vec<MatrixInfo>> {
-        let url = self.base_url.join("matrix/list")?;
-        let response = self
-            .client
-            .get(url)
-            .header("Content-Type", "application/json")
-            .send()
-            .await?;
-
-        self.handle_response(response).await
-    }
-
-    /// Get matrix info by name (HTTP)
-    pub async fn get_matrix_info(&self, name: &str) -> Result<MatrixInfo> {
-        let url = self.base_url.join(&format!("matrix/{}", name))?;
-        let response = self
-            .client
-            .get(url)
-            .header("Content-Type", "application/json")
-            .send()
-            .await?;
-
-        self.handle_response(response).await
-    }
-
-    /// Create a PQ entry
-    pub async fn create_pq(
-        &self,
-        name: &str,
-        request: CreatePqRequest,
-    ) -> Result<()> {
-        let url = self.base_url.join(&format!("pq/{}", name))?;
-        let response = self
-            .client
-            .post(url)
-            .header("Content-Type", "application/json")
-            .json(&request)
-            .send()
-            .await?;
-
-        self.handle_empty_response(response).await
-    }
-
-    /// Delete a PQ entry
-    pub async fn delete_pq(&self, name: &str) -> Result<()> {
-        let url = self.base_url.join(&format!("pq/{}", name))?;
-        let response = self
-            .client
-            .delete(url)
-            .header("Content-Type", "application/json")
-            .send()
-            .await?;
-
-        self.handle_empty_response(response).await
-    }
-
-    /// List all PQs
-    pub async fn list_pqs(&self) -> Result<Vec<PqInfo>> {
-        let url = self.base_url.join("pq/list")?;
-        let response = self
-            .client
-            .get(url)
-            .header("Content-Type", "application/json")
-            .send()
-            .await?;
-
-        self.handle_response(response).await
-    }
-
-    /// Get PQ info by name
-    pub async fn get_pq(&self, name: &str) -> Result<PqInfo> {
-        let url = self.base_url.join(&format!("pq/{}", name))?;
-        let response = self
-            .client
-            .get(url)
-            .header("Content-Type", "application/json")
-            .send()
-            .await?;
-
-        self.handle_response(response).await
-    }
-
-    /// Handle JSON response
     async fn handle_response<T>(&self, response: reqwest::Response) -> Result<T>
     where
         T: serde::de::DeserializeOwned,
     {
         let status = response.status();
         let text = response.text().await?;
-        
+
         if status.is_success() {
-            serde_json::from_str(&text).map_err(|e| CasperError::InvalidResponse(format!(
-                "Failed to parse response: {} - {}", e, text
-            )))
+            serde_json::from_str(&text).map_err(|e| CasperError::InvalidResponse(format!("Failed to parse response: {} - {}", e, text)))
         } else {
             Err(self.parse_error_response(status.as_u16(), &text))
         }
     }
 
-    /// Handle empty response (204 No Content)
     async fn handle_empty_response(&self, response: reqwest::Response) -> Result<()> {
         let status = response.status();
-        
         if status.is_success() {
             Ok(())
         } else {
@@ -494,17 +245,12 @@ impl CasperClient {
         }
     }
 
-
-    /// Parse error response
     fn parse_error_response(&self, status: u16, text: &str) -> CasperError {
-        // Try to parse as JSON error response
         if let Ok(error_json) = serde_json::from_str::<serde_json::Value>(text) {
             if let Some(message) = error_json.get("error").and_then(|v| v.as_str()) {
                 return CasperError::from_status(status, message.to_string());
             }
         }
-        
-        // Fallback to status-based error
         CasperError::from_status(status, text.to_string())
     }
 }
@@ -515,7 +261,7 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = CasperClient::new("http://localhost", 8080, 50051).unwrap();
+        let client = CasperClient::new("http://localhost", 8080).unwrap();
         assert_eq!(client.base_url(), "http://localhost:8080/");
     }
 }

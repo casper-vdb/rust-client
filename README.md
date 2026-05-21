@@ -21,46 +21,37 @@ casper-vdb = { git = "https://github.com/casper-vdb/rust-client" }
 
 ```rust
 use casper_client::{
-    CasperClient,
-    CreateCollectionRequest,
-    InsertRequest,
-    SearchRequest,
-    BatchUpdateRequest,
-    BatchInsertOperation,
-    CreateHNSWIndexRequest,
-    HNSWIndexConfig,
+    BatchInsertOperation, BatchUpdateRequest, CasperClient, CreateCollectionRequest,
+    CreateHNSWIndexRequest, HNSWIndexConfig, SearchRequest, VectorPoint,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // host (with scheme) + HTTP and gRPC ports
-    let client = CasperClient::new("http://localhost", 8080, 50051)?;
+    // host (with scheme) + HTTP port
+    let client = CasperClient::new("http://localhost", 8080)?;
 
-    // 1 Create a collection
+    // 1. Create a collection
     client
-        .create_collection("example_collection", CreateCollectionRequest {
-            dim: 128,
-            max_size: 10_000,
-        })
+        .create_collection(
+            "example_collection",
+            CreateCollectionRequest { dim: 128, max_size: 10_000 },
+        )
         .await?;
 
-    // 2 Insert some vectors
-    for i in 1..=5 {
-        let vector = generate_random_vector(128, i as f32);
-        let insert_request = InsertRequest { id: i, vector };
-        client.insert_vector("example_collection", insert_request).await?;
-    }
+    // 2. Upsert vectors (batch by default)
+    let points: Vec<VectorPoint> = (1..=5)
+        .map(|i| VectorPoint { id: i, vector: generate_random_vector(128, i as f32) })
+        .collect();
+    client.upsert_vectors("example_collection", points).await?;
 
-    // 3 Batch insert more vectors
-    let mut inserts = Vec::new();
-    for i in 6..=10 {
-        let vector = generate_random_vector(128, i as f32);
-        inserts.push(BatchInsertOperation { id: i, vector });
-    }
+    // 3. Mixed insert + delete in one call
+    let inserts: Vec<BatchInsertOperation> = (6..=10)
+        .map(|i| BatchInsertOperation { id: i, vector: generate_random_vector(128, i as f32) })
+        .collect();
     let batch_request = BatchUpdateRequest { insert: inserts, delete: vec![] };
     client.batch_update("example_collection", batch_request).await?;
 
-    // 4 Create HNSW index
+    // 4. Create HNSW index (build runs in the background server-side)
     let hnsw_request = CreateHNSWIndexRequest {
         hnsw: HNSWIndexConfig {
             metric: "inner-product".to_string(),
@@ -68,28 +59,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             m: 16,
             m0: 32,
             ef_construction: 200,
-            pq_name: None,
         },
         normalization: Some(true),
     };
     client.create_hnsw_index("example_collection", hnsw_request).await?;
 
-    // 5 Search for similar vectors
+    // 5. Search
     let query_vector = generate_random_vector(128, 1.0);
     let results = client
         .search(
             "example_collection",
             30,
-            SearchRequest { vector: query_vector, limit: Some(5) },
+            SearchRequest { vector: query_vector },
         )
         .await?;
 
     println!("Found {} results", results.len());
 
-    // 6 Delete the collection
-    println!("\nDeleting collection...");
+    // 6. Cleanup
     client.delete_collection("example_collection").await?;
-    println!("Collection 'example_collection' deleted successfully");
 
     Ok(())
 }
@@ -116,50 +104,13 @@ fn generate_random_vector(dim: usize, seed: f32) -> Vec<f32> {
 }
 ```
 
-[//]: # (## Matrix upload over gRPC)
+## API surface
 
-[//]: # ()
-[//]: # (The client exposes a streaming gRPC method to upload matrices efficiently, generated from `proto/matrix_service.proto`.)
-
-[//]: # ()
-[//]: # (```rust)
-
-[//]: # (use casper_client::CasperClient;)
-
-[//]: # ()
-[//]: # (#[tokio::main])
-
-[//]: # (async fn main&#40;&#41; -> Result<&#40;&#41;, Box<dyn std::error::Error>> {)
-
-[//]: # (    let client = CasperClient::new&#40;"http://localhost:8080"&#41;?;)
-
-[//]: # ()
-[//]: # (    let grpc_addr = "http://127.0.0.1:50051";)
-
-[//]: # (    let name = "example_matrix";)
-
-[//]: # (    let dim = 3usize;)
-
-[//]: # (    let vectors: Vec<f32> = vec![1.0, 2.0, 3.0,  4.0, 5.0, 6.0]; // two 3D vectors)
-
-[//]: # ()
-[//]: # (    let res = client)
-
-[//]: # (        .upload_matrix_grpc&#40;grpc_addr, name, dim, vectors, /*chunk_floats*/ 6&#41;)
-
-[//]: # (        .await?;)
-
-[//]: # ()
-[//]: # (    println!&#40;"{}", res.message&#41;;)
-
-[//]: # (    Ok&#40;&#40;&#41;&#41;)
-
-[//]: # (})
-
-[//]: # (```)
-
-[//]: # (Notes:)
-[//]: # (- gRPC client is built with `tonic`. The repository includes a build script that uses a vendored `protoc`, so a system-wide `protoc` is not required.)
+- Collections: `create_collection`, `delete_collection`, `get_collection`, `list_collections`
+- Vectors: `upsert_vectors`, `delete_vectors`, `batch_update`, `get_vector`
+- Mute / unmute: `mute`, `unmute`
+- Index: `create_hnsw_index`, `delete_index` (index build is asynchronous — the server returns 202 and builds in the background; poll `get_collection` for `has_index` if you need to wait)
+- Search: `search`, `search_with_ef` (binary response wire format is decoded automatically)
 
 ## Examples
 
@@ -171,10 +122,9 @@ cargo run --example example
 
 The example demonstrates:
 - Collection management (create, delete, list, info)
-- Vector operations (insert, batch update, search, get, delete)
-- Index management (create/delete HNSW)
-- Matrix operations (gRPC upload, HTTP listing/info/delete)
-- PQ operations (create/list/get/delete)
+- Vector operations (upsert, batch update, search, get, delete)
+- Mute / unmute
+- Index management (create / delete HNSW)
 
 ## License
 

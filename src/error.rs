@@ -6,49 +6,31 @@ pub type Result<T> = std::result::Result<T, CasperError>;
 pub enum CasperError {
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),
-    
+
     #[error("JSON serialization error: {0}")]
     Json(#[from] serde_json::Error),
-    
+
     #[error("URL parsing error: {0}")]
     Url(#[from] url::ParseError),
-    
+
     #[error("Server error: {status} - {message}")]
     Server { status: u16, message: String },
-    
+
     #[error("Client error: {status} - {message}")]
     Client { status: u16, message: String },
-    
+
     #[error("Invalid response: {0}")]
     InvalidResponse(String),
-    
+
     #[error("Collection not found: {0}")]
     CollectionNotFound(String),
-    
-    #[error("Index creation in progress")]
-    IndexCreationInProgress,
-    
+
     #[error("Operation not allowed: {0}")]
     OperationNotAllowed(String),
-    
-    #[error("Invalid vector dimension: expected {expected}, got {actual}")]
-    InvalidDimension { expected: usize, actual: usize },
-    
-    #[error("Vector ID exceeds collection max size: {id}")]
-    IdExceedsMaxSize { id: u32 },
-    
-    #[error("Zero-norm vectors are not allowed")]
-    ZeroNormVector,
-    
-    #[error("Collection is not mutable")]
-    CollectionNotMutable,
-    
+
     #[error("Index already exists")]
     IndexAlreadyExists,
-    
-    #[error("gRPC error: {0}")]
-    Grpc(String),
-    
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
