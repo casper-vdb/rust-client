@@ -12,7 +12,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_creation() {
-        let client = CasperClient::new("http://localhost", 8080).unwrap();
-        assert_eq!(client.base_url(), "http://localhost:8080/");
+        let client = CasperClient::new("http://localhost", 7222).unwrap();
+        assert_eq!(client.base_url(), "http://localhost:7222/");
     }
 }

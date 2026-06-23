@@ -56,6 +56,21 @@ pub struct CollectionInfo {
     pub status: String,
     #[serde(default)]
     pub index: Option<IndexInfo>,
+    /// WAL head — highest durably-fsynced data WAL seq + 1. Available since
+    /// Casper v0.1.0; defaults to 0 against older servers.
+    #[serde(default)]
+    pub current_seq: u64,
+    /// Highest WAL seq applied to the in-memory HNSW. `current_seq -
+    /// applied_seq` is the applier backlog. Casper v0.1.0+.
+    #[serde(default)]
+    pub applied_seq: u64,
+    /// WAL seq covered by the on-disk snapshot, if any. Absent until a
+    /// snapshot exists. Casper v0.1.0+.
+    #[serde(default)]
+    pub index_seq: Option<u64>,
+    /// Per-collection catalog head (catalog WAL seq + 1). Casper v0.1.0+.
+    #[serde(default)]
+    pub catalog_seq: u64,
 }
 
 /// Information about a collection's index.
@@ -118,4 +133,96 @@ pub struct CollectionsListResponse {
 pub struct GetVectorResponse {
     pub id: u32,
     pub vector: Vec<f32>,
+}
+
+// ============================================================================
+//  Cluster — GET /cluster
+// ============================================================================
+
+/// Per-collection progress reported by a master for one of its local
+/// collections.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MasterCollectionInfo {
+    pub name: String,
+    pub catalog_seq: u64,
+    pub current_seq: u64,
+    pub applied_seq: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_seq: Option<u64>,
+}
+
+/// Per-collection progress reported by a replica for one of the collections
+/// it tracks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplicaCollectionInfo {
+    pub name: String,
+    pub applied_catalog_seq: u64,
+    pub applied_data_seq: u64,
+}
+
+/// One connected replica's last-known cursors, as reported by ACKs.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ReplicaCursorInfo {
+    pub replica_id: String,
+    pub applied_global_catalog_seq: u64,
+    pub collections: Vec<ReplicaCollectionInfo>,
+}
+
+/// Response payload for `GET /cluster`. The variant is tagged by the
+/// server with `"role": "<standalone|master|replica>"` and the rest of
+/// the fields are inlined.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "role", rename_all = "lowercase")]
+pub enum ClusterInfo {
+    Standalone {
+        node_id: String,
+    },
+    Master {
+        node_id: String,
+        global_catalog_seq: u64,
+        collections: Vec<MasterCollectionInfo>,
+        replicas: Vec<ReplicaCursorInfo>,
+    },
+    Replica {
+        node_id: String,
+        applied_global_catalog_seq: u64,
+        master_addr: String,
+        collections: Vec<ReplicaCollectionInfo>,
+    },
+}
+
+// ============================================================================
+//  Configuration — GET /config
+// ============================================================================
+
+/// Cluster role of a Casper node. Lowercased on the wire.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ClusterRole {
+    Standalone,
+    Master,
+    Replica,
+}
+
+/// Response payload for `GET /config` — the runtime `AppConfig` the server
+/// process started with. Configuration is immutable after startup.
+///
+/// New fields may be added by future Casper versions; `#[serde(default)]`
+/// keeps deserialization tolerant against newer servers that send unknown
+/// fields (those are ignored by default) and older servers that omit
+/// fields added in newer Casper releases.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AppConfig {
+    pub host: String,
+    pub http_port: u16,
+    pub storage_dir: String,
+    pub cluster_role: ClusterRole,
+    #[serde(default)]
+    pub master_addr: Option<String>,
+    pub grpc_port: u16,
+    pub snapshot_every_writes: u64,
+    pub snapshot_every_seconds: u64,
+    pub snapshot_enabled: bool,
+    pub sync_replicas: usize,
+    pub write_ack_timeout_ms: u64,
 }

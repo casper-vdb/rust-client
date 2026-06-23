@@ -6,7 +6,7 @@ use casper_client::{
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Resolve host and port from environment (with sane defaults).
     let host = std::env::var("CASPER_HOST").unwrap_or_else(|_| "http://127.0.0.1".to_string());
-    let http_port: u16 = std::env::var("CASPER_HTTP_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(8080);
+    let http_port: u16 = std::env::var("CASPER_HTTP_PORT").ok().and_then(|v| v.parse().ok()).unwrap_or(7222);
 
     let client = CasperClient::new(&host, http_port)?;
 
