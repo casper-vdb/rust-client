@@ -4,8 +4,8 @@ use casper_client::{
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // host (with scheme) + HTTP port
-    let client = CasperClient::new("http://localhost", 8080)?;
+    // host (with scheme) + HTTP port (Casper default since v0.1.0 is 7222)
+    let client = CasperClient::new("http://localhost", 7222)?;
 
     // 1. Create a collection
     client
@@ -46,6 +46,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         normalization: Some(true),
     };
     client.create_hnsw_index("example_collection", hnsw_request).await?;
+
+    // Poll until the index is ready.
+    println!("Waiting for index build to finish...");
+    loop {
+        let info = client.get_collection("example_collection").await?;
+        if info.has_index {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    println!("Index ready");
 
     // 5. Search.
     let query_vector = generate_random_vector(128, 1.0);

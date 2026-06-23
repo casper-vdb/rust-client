@@ -21,37 +21,42 @@ casper-vdb = { git = "https://github.com/casper-vdb/rust-client" }
 
 ```rust
 use casper_client::{
-    BatchInsertOperation, BatchUpdateRequest, CasperClient, CreateCollectionRequest,
-    CreateHNSWIndexRequest, HNSWIndexConfig, SearchRequest, VectorPoint,
+    BatchInsertOperation, BatchUpdateRequest, CasperClient, CreateCollectionRequest, CreateHNSWIndexRequest, HNSWIndexConfig, SearchRequest, VectorPoint,
 };
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // host (with scheme) + HTTP port
-    let client = CasperClient::new("http://localhost", 8080)?;
+    // host (with scheme) + HTTP port (Casper default since v0.1.0 is 7222)
+    let client = CasperClient::new("http://localhost", 7222)?;
 
     // 1. Create a collection
     client
-        .create_collection(
-            "example_collection",
-            CreateCollectionRequest { dim: 128, max_size: 10_000 },
-        )
+        .create_collection("example_collection", CreateCollectionRequest { dim: 128, max_size: 10_000 })
         .await?;
 
-    // 2. Upsert vectors (batch by default)
+    // 2. Upsert some vectors (single call replaces the old per-id insert).
     let points: Vec<VectorPoint> = (1..=5)
-        .map(|i| VectorPoint { id: i, vector: generate_random_vector(128, i as f32) })
+        .map(|i| VectorPoint {
+            id: i,
+            vector: generate_random_vector(128, i as f32),
+        })
         .collect();
     client.upsert_vectors("example_collection", points).await?;
 
-    // 3. Mixed insert + delete in one call
+    // 3. Mixed insert+delete in one batch.
     let inserts: Vec<BatchInsertOperation> = (6..=10)
-        .map(|i| BatchInsertOperation { id: i, vector: generate_random_vector(128, i as f32) })
+        .map(|i| BatchInsertOperation {
+            id: i,
+            vector: generate_random_vector(128, i as f32),
+        })
         .collect();
-    let batch_request = BatchUpdateRequest { insert: inserts, delete: vec![] };
+    let batch_request = BatchUpdateRequest {
+        insert: inserts,
+        delete: vec![],
+    };
     client.batch_update("example_collection", batch_request).await?;
 
-    // 4. Create HNSW index (build runs in the background server-side)
+    // 4. Create HNSW index (server returns 202, build is asynchronous).
     let hnsw_request = CreateHNSWIndexRequest {
         hnsw: HNSWIndexConfig {
             metric: "inner-product".to_string(),
@@ -64,20 +69,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
     client.create_hnsw_index("example_collection", hnsw_request).await?;
 
-    // 5. Search
+    // Poll until the index is ready.
+    println!("Waiting for index build to finish...");
+    loop {
+        let info = client.get_collection("example_collection").await?;
+        if info.has_index {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    }
+    println!("Index ready");
+
+    // 5. Search.
     let query_vector = generate_random_vector(128, 1.0);
-    let results = client
-        .search(
-            "example_collection",
-            30,
-            SearchRequest { vector: query_vector },
-        )
-        .await?;
+    let results = client.search("example_collection", 30, SearchRequest { vector: query_vector }).await?;
 
     println!("Found {} results", results.len());
 
-    // 6. Cleanup
+    // 6. Cleanup.
     client.delete_collection("example_collection").await?;
+    println!("Collection 'example_collection' deleted successfully");
 
     Ok(())
 }

@@ -15,7 +15,7 @@ impl CasperClient {
     /// Create a new client.
     ///
     /// - `host`: hostname with scheme (e.g. "http://127.0.0.1")
-    /// - `http_port`: HTTP API port (e.g. 8080)
+    /// - `http_port`: HTTP API port (Casper default is 7222)
     pub fn new(host: &str, http_port: u16) -> Result<Self> {
         Self::with_timeout(host, http_port, Duration::from_secs(30))
     }
@@ -219,6 +219,34 @@ impl CasperClient {
         Ok(results)
     }
 
+    // ---- Cluster & configuration -------------------------------------------
+
+    /// `GET /cluster` — node role + replication progress. The variant of
+    /// [`ClusterInfo`] reflects whether this node is `Standalone`, `Master`,
+    /// or `Replica`.
+    pub async fn get_cluster(&self) -> Result<ClusterInfo> {
+        let url = self.base_url.join("cluster")?;
+        let response = self.client.get(url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// `GET /config` — runtime configuration the server started with. The
+    /// config is immutable after startup; restart the server to change a
+    /// value.
+    pub async fn get_config(&self) -> Result<AppConfig> {
+        let url = self.base_url.join("config")?;
+        let response = self.client.get(url).send().await?;
+        self.handle_response(response).await
+    }
+
+    /// `GET /health` — returns `Ok(())` when the server process is up.
+    /// Suitable for Kubernetes liveness/readiness probes.
+    pub async fn health(&self) -> Result<()> {
+        let url = self.base_url.join("health")?;
+        let response = self.client.get(url).send().await?;
+        self.handle_empty_response(response).await
+    }
+
     // ---- Internal helpers --------------------------------------------------
 
     async fn handle_response<T>(&self, response: reqwest::Response) -> Result<T>
@@ -261,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_client_creation() {
-        let client = CasperClient::new("http://localhost", 8080).unwrap();
-        assert_eq!(client.base_url(), "http://localhost:8080/");
+        let client = CasperClient::new("http://localhost", 7222).unwrap();
+        assert_eq!(client.base_url(), "http://localhost:7222/");
     }
 }
