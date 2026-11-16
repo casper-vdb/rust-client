@@ -1,6 +1,6 @@
 [package]
 name = "casper-vdb"
-version = "0.1.3"
+version = "0.2.0"
 edition = "2024"
 description = "Client library for Casper Vector Database"
 authors = ["Alexander Ryzhikov <makseljoinb@gmail.com>"]

@@ -1,68 +1,80 @@
 use casper_client::{
-    BatchInsertOperation, BatchUpdateRequest, CasperClient, CreateCollectionRequest, CreateHNSWIndexRequest, HNSWIndexConfig, SearchRequest, VectorPoint,
+    BatchUpdateRequest, CasperClient, CreateCollectionRequest, HNSWIndexConfig, IndexSpec, IndexState, ScoresRequest, SearchRequest, UpsertOperation,
 };
+use std::time::{Duration, Instant};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // host (with scheme) + HTTP port (Casper default since v0.1.0 is 7222)
+    // host (with scheme) + HTTP port (Casper default is 7222)
     let client = CasperClient::new("http://localhost", 7222)?;
 
-    // 1. Create a collection
-    client
-        .create_collection("example_collection", CreateCollectionRequest { dim: 128, max_size: 10_000 })
-        .await?;
-
-    // 2. Upsert some vectors (single call replaces the old per-id insert).
-    let points: Vec<VectorPoint> = (1..=5)
-        .map(|i| VectorPoint {
-            id: i,
-            vector: generate_random_vector(128, i as f32),
-        })
-        .collect();
-    client.upsert_vectors("example_collection", points).await?;
-
-    // 3. Mixed insert+delete in one batch.
-    let inserts: Vec<BatchInsertOperation> = (6..=10)
-        .map(|i| BatchInsertOperation {
-            id: i,
-            vector: generate_random_vector(128, i as f32),
-        })
-        .collect();
-    let batch_request = BatchUpdateRequest {
-        insert: inserts,
-        delete: vec![],
+    // 1. Create a collection with the schema of its index.
+    let request = CreateCollectionRequest {
+        dim: 128,
+        max_size: 10_000,
+        index: IndexSpec {
+            hnsw: HNSWIndexConfig {
+                metric: "inner-product".to_string(),
+                quantization: "f32".to_string(),
+                m: 16,
+                m0: 32,
+                ef_construction: 200,
+            },
+            normalization: Some(true),
+            storage: None,
+        },
     };
+    let id = client.create_collection("example_collection", request).await?;
+    println!("Collection created: {}", id);
+
+    // 2. Write: upserts and deletes in one call.
+    let upserts: Vec<UpsertOperation> = (1..=10)
+        .map(|i| UpsertOperation {
+            id: i,
+            vector: generate_random_vector(128, i as f32),
+        })
+        .collect();
+    let batch_request = BatchUpdateRequest { upserts, delete: vec![] };
     client.batch_update("example_collection", batch_request).await?;
 
-    // 4. Create HNSW index (server returns 202, build is asynchronous).
-    let hnsw_request = CreateHNSWIndexRequest {
-        hnsw: HNSWIndexConfig {
-            metric: "inner-product".to_string(),
-            quantization: "f32".to_string(),
-            m: 16,
-            m0: 32,
-            ef_construction: 200,
-        },
-        normalization: Some(true),
-    };
-    client.create_hnsw_index("example_collection", hnsw_request).await?;
-
-    // Poll until the index is ready.
+    // 3. Start indexing (server returns 202, the build is asynchronous) and
+    //    wait for `index.state` to become `ready`. `not_started` after a start
+    //    means the build failed.
+    client.start_indexing("example_collection").await?;
     println!("Waiting for index build to finish...");
+    let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         let info = client.get_collection("example_collection").await?;
-        if info.has_index {
-            break;
+        match info.index.state {
+            IndexState::Ready => break,
+            IndexState::NotStarted => return Err("index build failed".into()),
+            IndexState::Building if Instant::now() >= deadline => return Err("index build timed out".into()),
+            IndexState::Building => tokio::time::sleep(Duration::from_millis(200)).await,
         }
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     }
     println!("Index ready");
 
-    // 5. Search.
+    // 4. Search, and score the query against chosen ids.
     let query_vector = generate_random_vector(128, 1.0);
-    let results = client.search("example_collection", 30, SearchRequest { vector: query_vector }).await?;
-
+    let results = client.search("example_collection", 5, SearchRequest { vector: query_vector.clone() }).await?;
     println!("Found {} results", results.len());
+
+    let scores = client
+        .scores(
+            "example_collection",
+            ScoresRequest {
+                vector: query_vector,
+                ids: vec![1, 2, 3],
+            },
+        )
+        .await?;
+    println!("Scored {} ids", scores.len());
+
+    // 5. Get a vector by id.
+    match client.get_vector("example_collection", 1).await? {
+        Some(vector) => println!("Vector 1: {} components", vector.len()),
+        None => println!("Vector 1 not found"),
+    }
 
     // 6. Cleanup.
     client.delete_collection("example_collection").await?;
